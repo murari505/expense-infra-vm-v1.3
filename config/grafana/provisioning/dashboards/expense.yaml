@@ -1,0 +1,15 @@
+# /etc/grafana/provisioning/dashboards/expense.yaml
+# Says WHERE to look; the JSON files in that folder are WHAT to load.
+# Grafana rescans the folder every 30 s, so a changed dashboard needs no restart.
+apiVersion: 1
+
+providers:
+  - name: expense-dashboards
+    folder: Expense App
+    type: file
+    disableDeletion: false
+    allowUiUpdates: true
+    updateIntervalSeconds: 30
+    options:
+      path: /var/lib/grafana/dashboards
+      foldersFromFilesStructure: false

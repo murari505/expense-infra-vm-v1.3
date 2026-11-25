@@ -1,0 +1,119 @@
+#!/bin/bash
+# expense-monitoring (RHEL 9): INSTALL ONLY. Grows the disk, installs
+# node_exporter :9100, Prometheus :9090, blackbox_exporter :9115, Grafana :3000,
+# each with a minimal config. The real config comes from config/ in the repo
+# via terraform_data.monitoring_config, so editing it never replaces this VM.
+# Never overwrites an existing config file; safe to re-run.
+
+mkdir -p /var/log/expense
+exec > >(tee -a /var/log/expense/setup.log) 2>&1
+
+VALIDATE() {
+  if [ "$1" -ne 0 ]; then
+    echo "$(date '+%F %T') $2 ... FAILURE"
+    exit 1
+  else
+    echo "$(date '+%F %T') $2 ... SUCCESS"
+  fi
+}
+
+echo "===== expense-monitoring setup started $(date) ====="
+
+HOSTNAME_NEW="${hostname}"
+NODE_EXPORTER_VERSION="${node_exporter_version}"
+PROMETHEUS_VERSION="${prometheus_version}"
+PROMETHEUS_RETENTION="${prometheus_retention}"
+BLACKBOX_EXPORTER_VERSION="${blackbox_exporter_version}"
+GRAFANA_VERSION="${grafana_version}"
+GRAFANA_BUILD="${grafana_build}"
+GRAFANA_SHA256="${grafana_sha256}"
+ROOT_SIZE_GB="${root_size_gb}"
+VAR_SIZE_GB="${var_size_gb}"
+
+${monitoring_lib}
+
+${monitoring_server_lib}
+
+# ---- 1. hostname (kept across reboots) ---------------------------------------
+hostnamectl set-hostname "$HOSTNAME_NEW"
+VALIDATE $? "set hostname $HOSTNAME_NEW"
+grep -q " $HOSTNAME_NEW\$" /etc/hosts || echo "127.0.1.1 $HOSTNAME_NEW" >> /etc/hosts
+VALIDATE $? "add hostname to /etc/hosts"
+echo "preserve_hostname: true" > /etc/cloud/cloud.cfg.d/99-expense-hostname.cfg
+VALIDATE $? "tell cloud-init to keep the hostname"
+
+# ---- 2. disk: / and /var to their target sizes ------------------------------------
+GROW_DISK "$ROOT_SIZE_GB" "$VAR_SIZE_GB"
+
+# swap: the AMI's 2 GB RootVG-swapVol is already active (no /swapfile)
+swapon --show
+
+# ---- 3. node_exporter (:9100) -------------------------------------------------------
+INSTALL_NODE_EXPORTER "$NODE_EXPORTER_VERSION"
+
+# ---- 4. Prometheus (:9090) ----------------------------------------------------------
+PROMETHEUS_BASE="https://github.com/prometheus/prometheus/releases/download/v$PROMETHEUS_VERSION"
+PROMETHEUS_TARBALL="prometheus-$PROMETHEUS_VERSION.linux-$ARCH.tar.gz"
+INSTALL_RELEASE prometheus "$PROMETHEUS_VERSION" "$PROMETHEUS_BASE/$PROMETHEUS_TARBALL" "$PROMETHEUS_BASE/sha256sums.txt" 1
+
+ln -sfn /opt/prometheus/prometheus /usr/local/bin/prometheus &&
+  ln -sfn /opt/prometheus/promtool /usr/local/bin/promtool
+VALIDATE $? "link prometheus and promtool into /usr/local/bin"
+
+mkdir -p /etc/prometheus /var/lib/prometheus
+chown prometheus:prometheus /var/lib/prometheus
+VALIDATE $? "create /etc/prometheus and /var/lib/prometheus"
+if [ -f /etc/prometheus/prometheus.yml ]; then
+  echo "/etc/prometheus/prometheus.yml exists, keeping it"
+else
+  install -o root -g prometheus -m 0640 /opt/prometheus/prometheus.yml /etc/prometheus/prometheus.yml
+  VALIDATE $? "install the release's default prometheus.yml (replaced by monitoring_config)"
+fi
+promtool check config /etc/prometheus/prometheus.yml
+VALIDATE $? "promtool check config"
+
+# ExecReload: `sudo systemctl reload prometheus` re-reads prometheus.yml (SIGHUP).
+cat > /etc/systemd/system/prometheus.service << UNIT
+[Unit]
+Description=Prometheus
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=prometheus
+Group=prometheus
+ExecStart=/opt/prometheus/prometheus \\
+  --config.file=/etc/prometheus/prometheus.yml \\
+  --storage.tsdb.path=/var/lib/prometheus \\
+  --storage.tsdb.retention.time=$PROMETHEUS_RETENTION \\
+  --web.listen-address=0.0.0.0:9090
+ExecReload=/bin/kill -HUP \$MAINPID
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target
+UNIT
+VALIDATE $? "write prometheus.service"
+
+OPEN_PORT 9090
+START_SERVICE prometheus
+
+READY=1
+for i in $(seq 1 30); do
+  if curl -fsS --max-time 3 http://127.0.0.1:9090/-/ready; then
+    echo
+    READY=0
+    break
+  fi
+  sleep 2
+done
+VALIDATE $READY "GET :9090/-/ready"
+WAIT_METRIC http://127.0.0.1:9090/metrics '^prometheus_build_info' "Prometheus serves its own metrics"
+
+# ---- 5. blackbox_exporter (:9115) ---------------------------------------------------
+INSTALL_BLACKBOX "$BLACKBOX_EXPORTER_VERSION"
+
+# ---- 6. Grafana (:3000) -------------------------------------------------------------
+INSTALL_GRAFANA "$GRAFANA_VERSION" "$GRAFANA_BUILD" "$GRAFANA_SHA256"
+
+echo "===== EXPENSE SETUP COMPLETE $(date) ====="

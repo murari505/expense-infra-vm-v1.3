@@ -1,0 +1,78 @@
+# /etc/blackbox_exporter/blackbox.yml on ${project}-monitoring
+# Rendered by Terraform from config/blackbox/blackbox.yml.tftpl; the module
+# names are what prometheus.yml (blackbox_http, blackbox_dns) asks for.
+# Both files are rendered from the same variables, so the domains always match.
+#
+# Check, then reload:
+#   /opt/blackbox_exporter/blackbox_exporter --config.check --config.file=/etc/blackbox_exporter/blackbox.yml
+#   sudo systemctl reload blackbox_exporter
+
+modules:
+  # ---- 1. HTTPS answers 2xx and the certificate is valid ----------------------
+  # (trusted chain, not expired, hostname matches)
+  https_2xx:
+    prober: http
+    timeout: 5s
+    http:
+      preferred_ip_protocol: ip4
+      follow_redirects: true
+      fail_if_not_ssl: true
+      tls_config:
+        insecure_skip_verify: false
+
+  # ---- 2. http:// redirects to https:// ---------------------------------------
+  http_redirects_to_https:
+    prober: http
+    timeout: 5s
+    http:
+      preferred_ip_protocol: ip4
+      follow_redirects: false
+      valid_status_codes: [301, 302, 308]
+      fail_if_header_not_matches:
+        - header: Location
+          regexp: '^https://'
+
+  # ---- 3. DNS: target = the resolver, query_name = the record -----------------
+  dns_app_a:
+    prober: dns
+    timeout: 5s
+    dns:
+      preferred_ip_protocol: ip4
+      query_name: ${app_fqdn}
+      query_type: A
+      valid_rcodes: [NOERROR]
+      validate_answer_rrs:
+        fail_if_not_matches_regexp: ['.*\tIN\tA\t.*']
+
+  dns_frontend_a:
+    prober: dns
+    timeout: 5s
+    dns:
+      preferred_ip_protocol: ip4
+      query_name: ${frontend_fqdn}
+      query_type: A
+      valid_rcodes: [NOERROR]
+      validate_answer_rrs:
+        fail_if_not_matches_regexp: ['.*\tIN\tA\t.*']
+
+  dns_backend_a:
+    prober: dns
+    timeout: 5s
+    dns:
+      preferred_ip_protocol: ip4
+      query_name: ${backend_fqdn}
+      query_type: A
+      valid_rcodes: [NOERROR]
+      validate_answer_rrs:
+        fail_if_not_matches_regexp: ['.*\tIN\tA\t.*']
+
+  dns_mysql_a:
+    prober: dns
+    timeout: 5s
+    dns:
+      preferred_ip_protocol: ip4
+      query_name: ${mysql_fqdn}
+      query_type: A
+      valid_rcodes: [NOERROR]
+      validate_answer_rrs:
+        fail_if_not_matches_regexp: ['.*\tIN\tA\t.*']

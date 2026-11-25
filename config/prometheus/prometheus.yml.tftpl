@@ -1,0 +1,242 @@
+# /etc/prometheus/prometheus.yml on ${project}-monitoring
+# Rendered by Terraform (templatefile) from config/prometheus/prometheus.yml.tftpl
+# and installed by terraform_data.monitoring_config. Edit the template in the
+# repo, not this file on the VM: the next apply overwrites it.
+#
+# Every app target is found through EC2 service discovery. Credentials: none
+# here; the instance role ${project}-prometheus is used automatically.
+#
+# Two steps per EC2 SD job:
+#   1. ec2_sd_configs  asks AWS for instances tagged Monitoring=true AND
+#                      Project=${project} (server-side filter).
+#   2. relabel_configs keeps the ones this job is for (action: keep on the Tier
+#                      tag), then copies tags onto the series as labels.
+#
+#   job                SD / static                     port   targets
+#   prometheus         static localhost                9090   1
+#   node               EC2 SD (every VM)               9100   4
+#   nginx              EC2 SD, Tier=frontend           9113   1
+#   backend            EC2 SD, Tier=backend            9101   1
+#   mysql              EC2 SD, Tier=db                 9104   1
+#   blackbox_exporter  static localhost                9115   1
+#   grafana            static localhost                3000   1
+#   blackbox_http      static, via localhost:9115      -      3 probes
+#   blackbox_dns       static, via localhost:9115      -      5 probes
+#
+# Check, then reload without a restart:
+#   promtool check config /etc/prometheus/prometheus.yml
+#   sudo systemctl reload prometheus
+
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+  scrape_timeout: 10s
+
+scrape_configs:
+
+  # ================= Prometheus itself =================
+  - job_name: "prometheus"
+    static_configs:
+      - targets: ["localhost:9090"]
+        labels:
+          tier: "monitoring"
+          component: "prometheus"
+          project: "${project}"
+          env: "lab"
+          name: "${project}-monitoring"
+
+  # ================= Hosts: node_exporter on every VM =================
+  - job_name: "node"
+    ec2_sd_configs:
+      - region: ${aws_region}
+        port: 9100
+        filters:
+          - name: tag:Monitoring
+            values: ["true"]
+          - name: tag:Project
+            values: ["${project}"]
+    relabel_configs:
+      # no keep rule: every Monitoring=true instance is a node target
+      # --- labels on every series (instance stays <private-ip>:9100) ---
+      - source_labels: [__meta_ec2_tag_Tier]
+        target_label: tier
+      - source_labels: [__meta_ec2_tag_Component]
+        target_label: component
+      - source_labels: [__meta_ec2_tag_Project]
+        target_label: project
+      - source_labels: [__meta_ec2_tag_Environment]
+        target_label: env
+      - source_labels: [__meta_ec2_tag_Name]
+        target_label: name
+      - source_labels: [__meta_ec2_instance_id]
+        target_label: instance_id
+      - source_labels: [__meta_ec2_availability_zone]
+        target_label: az
+
+  # ================= nginx exporter (frontend) =================
+  - job_name: "nginx"
+    ec2_sd_configs:
+      - region: ${aws_region}
+        port: 9113
+        filters:
+          - name: tag:Monitoring
+            values: ["true"]
+          - name: tag:Project
+            values: ["${project}"]
+    relabel_configs:
+      # --- which instances: keep only these, drop the rest ---
+      - source_labels: [__meta_ec2_tag_Tier]
+        regex: frontend
+        action: keep
+      # --- labels on every series (instance stays <private-ip>:9113) ---
+      - source_labels: [__meta_ec2_tag_Tier]
+        target_label: tier
+      - source_labels: [__meta_ec2_tag_Component]
+        target_label: component
+      - source_labels: [__meta_ec2_tag_Project]
+        target_label: project
+      - source_labels: [__meta_ec2_tag_Environment]
+        target_label: env
+      - source_labels: [__meta_ec2_tag_Name]
+        target_label: name
+      - source_labels: [__meta_ec2_instance_id]
+        target_label: instance_id
+      - source_labels: [__meta_ec2_availability_zone]
+        target_label: az
+
+  # ================= backend app metrics (built into the app) =================
+  - job_name: "backend"
+    metrics_path: /metrics
+    ec2_sd_configs:
+      - region: ${aws_region}
+        port: ${backend_metrics_port}
+        filters:
+          - name: tag:Monitoring
+            values: ["true"]
+          - name: tag:Project
+            values: ["${project}"]
+    relabel_configs:
+      # --- which instances: keep only these, drop the rest ---
+      - source_labels: [__meta_ec2_tag_Tier]
+        regex: backend
+        action: keep
+      # --- labels on every series (instance stays <private-ip>:${backend_metrics_port}) ---
+      - source_labels: [__meta_ec2_tag_Tier]
+        target_label: tier
+      - source_labels: [__meta_ec2_tag_Component]
+        target_label: component
+      - source_labels: [__meta_ec2_tag_Project]
+        target_label: project
+      - source_labels: [__meta_ec2_tag_Environment]
+        target_label: env
+      - source_labels: [__meta_ec2_tag_Name]
+        target_label: name
+      - source_labels: [__meta_ec2_instance_id]
+        target_label: instance_id
+      - source_labels: [__meta_ec2_availability_zone]
+        target_label: az
+
+  # ================= mysqld_exporter (mysql) =================
+  - job_name: "mysql"
+    ec2_sd_configs:
+      - region: ${aws_region}
+        port: 9104
+        filters:
+          - name: tag:Monitoring
+            values: ["true"]
+          - name: tag:Project
+            values: ["${project}"]
+    relabel_configs:
+      # --- which instances: keep only these, drop the rest ---
+      - source_labels: [__meta_ec2_tag_Tier]
+        regex: db
+        action: keep
+      # --- labels on every series (instance stays <private-ip>:9104) ---
+      - source_labels: [__meta_ec2_tag_Tier]
+        target_label: tier
+      - source_labels: [__meta_ec2_tag_Component]
+        target_label: component
+      - source_labels: [__meta_ec2_tag_Project]
+        target_label: project
+      - source_labels: [__meta_ec2_tag_Environment]
+        target_label: env
+      - source_labels: [__meta_ec2_tag_Name]
+        target_label: name
+      - source_labels: [__meta_ec2_instance_id]
+        target_label: instance_id
+      - source_labels: [__meta_ec2_availability_zone]
+        target_label: az
+
+  # ================= Blackbox exporter's own metrics =================
+  - job_name: "blackbox_exporter"
+    static_configs:
+      - targets: ["localhost:9115"]
+        labels:
+          tier: "monitoring"
+          component: "blackbox_exporter"
+          project: "${project}"
+          env: "lab"
+          name: "${project}-monitoring"
+
+  # ================= Grafana's own metrics =================
+  - job_name: "grafana"
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["localhost:3000"]
+        labels:
+          tier: "monitoring"
+          component: "grafana"
+          project: "${project}"
+          env: "lab"
+          name: "${project}-monitoring"
+
+  # ================= Black-box: HTTPS + cert + redirect =================
+  # Relabel order matters: (4) must be LAST, because (1) and (3) read the
+  # original __address__ (the URL being probed).
+  - job_name: "blackbox_http"
+    metrics_path: /probe
+    static_configs:
+      - targets: ["https://${app_fqdn}/"]
+        labels: { probe: alb, module: https_2xx }
+      - targets: ["https://${app_fqdn}/api/health/ready"]
+        labels: { probe: app_ready, module: https_2xx }
+      - targets: ["http://${app_fqdn}/"]
+        labels: { probe: alb_redirect, module: http_redirects_to_https }
+    relabel_configs:
+      - source_labels: [__address__]       # (1) URL -> ?target=
+        target_label: __param_target
+      - source_labels: [module]            # (2) module label -> &module=
+        target_label: __param_module
+      - source_labels: [__param_target]    # (3) readable instance label
+        target_label: instance
+      - target_label: __address__          # (4) connect to the exporter (LAST)
+        replacement: localhost:9115
+
+  # ================= Black-box: DNS =================
+  # target = the resolver to ask, module = which record to ask for.
+  - job_name: "blackbox_dns"
+    metrics_path: /probe
+    static_configs:
+      # Public resolver: what users see
+      - targets: ["8.8.8.8:53"]
+        labels: { resolver: public, module: dns_app_a, record: "${app_fqdn}" }
+      # Amazon VPC resolver (VPC CIDR base + 2): what the app VMs see
+      - targets: ["${vpc_resolver}:53"]
+        labels: { resolver: vpc, module: dns_app_a, record: "${app_fqdn}" }
+      - targets: ["${vpc_resolver}:53"]
+        labels: { resolver: vpc, module: dns_frontend_a, record: "${frontend_fqdn}" }
+      - targets: ["${vpc_resolver}:53"]
+        labels: { resolver: vpc, module: dns_backend_a, record: "${backend_fqdn}" }
+      - targets: ["${vpc_resolver}:53"]
+        labels: { resolver: vpc, module: dns_mysql_a, record: "${mysql_fqdn}" }
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: __param_target
+      - source_labels: [module]
+        target_label: __param_module
+      # resolver:port alone would repeat for the four VPC probes; add the record
+      - source_labels: [__param_target, record]
+        separator: " "
+        target_label: instance
+      - target_label: __address__
+        replacement: localhost:9115

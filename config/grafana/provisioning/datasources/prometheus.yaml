@@ -1,0 +1,16 @@
+# /etc/grafana/provisioning/datasources/prometheus.yaml
+# The fixed uid is what every dashboard references, so the same JSON works on
+# any Grafana. timeInterval matches Prometheus' scrape_interval.
+apiVersion: 1
+
+datasources:
+  - name: Prometheus
+    uid: prometheus
+    type: prometheus
+    access: proxy
+    url: http://localhost:9090
+    isDefault: true
+    editable: false
+    jsonData:
+      timeInterval: 15s
+      httpMethod: POST

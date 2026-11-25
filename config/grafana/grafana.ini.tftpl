@@ -1,0 +1,31 @@
+# /etc/grafana/grafana.ini on ${project}-monitoring
+# Rendered by Terraform from config/grafana/grafana.ini.tftpl. Overrides
+# /opt/grafana/conf/defaults.ini (never edit that one: upgrades replace it).
+# Only whole-line comments are safe here: a comment after a value becomes part
+# of the value.
+
+[paths]
+data = /var/lib/grafana
+logs = /var/log/grafana
+plugins = /var/lib/grafana/plugins
+provisioning = /etc/grafana/provisioning
+
+[server]
+http_addr = 0.0.0.0
+http_port = 3000
+
+[security]
+# Lab only. Applied only when Grafana creates its DB on first start; after that,
+# change it in the UI or with:
+#   sudo -u grafana /opt/grafana/bin/grafana cli --homepath /opt/grafana --config /etc/grafana/grafana.ini admin reset-admin-password <new>
+# and set var.grafana_admin_password to match (monitoring_ready logs in with it).
+admin_user = admin
+admin_password = ${grafana_admin_password}
+
+[analytics]
+reporting_enabled = false
+check_for_updates = false
+
+[log]
+mode = console file
+level = info
