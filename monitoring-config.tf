@@ -67,14 +67,14 @@ resource "terraform_data" "monitoring_config" {
     local.monitoring_config_hash,
   ]
 
-  connection {
-    type     = "ssh"
-    host     = aws_instance.monitoring.public_ip
-    user     = var.ssh_user
-    password = var.ssh_password
-    timeout  = "5m"
-  }
-
+  
+connection {
+  type        = "ssh"
+  host        = aws_instance.monitoring.public_ip
+  user        = var.ssh_user
+  private_key = file(var.private_key_path)
+  timeout     = "5m"
+}
   provisioner "remote-exec" {
     inline = [
       "rm -rf /tmp/expense-config && mkdir -p /tmp/expense-config/prometheus /tmp/expense-config/blackbox /tmp/expense-config/grafana/provisioning /tmp/expense-config/grafana/dashboards",
@@ -130,12 +130,12 @@ resource "terraform_data" "monitoring_ready" {
   ]
 
   connection {
-    type     = "ssh"
-    host     = aws_instance.monitoring.public_ip
-    user     = var.ssh_user
-    password = var.ssh_password
-    timeout  = "5m"
-  }
+  type        = "ssh"
+  host        = aws_instance.monitoring.public_ip
+  user        = var.ssh_user
+  private_key = file(var.private_key_path)
+  timeout     = "5m"
+}
 
   provisioner "file" {
     source      = "${path.module}/templates/monitoring-ready.sh"
