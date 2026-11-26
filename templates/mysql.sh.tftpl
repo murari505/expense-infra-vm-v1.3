@@ -58,11 +58,31 @@ swapon --show
 # Installed before the database, so host metrics exist even if a later step fails.
 INSTALL_NODE_EXPORTER "$NODE_EXPORTER_VERSION"
 
-# ---- packages --------------------------------------------------------------------
-# Install only what this VM needs. No system update or upgrade (too slow for a
-# lab that is rebuilt daily), and packages already on the AMI (git) are left
-# alone: `dnf install` would otherwise upgrade them.
-INSTALL_MISSING mysql-server git
+
+# ---- Oracle MySQL Community Server 8.4 LTS -------------------------------
+MYSQL_REPO_RPM="https://dev.mysql.com/get/mysql84-community-release-el10-3.noarch.rpm"
+
+if ! rpm -q mysql84-community-release-el10-3 >/dev/null 2>&1; then
+  dnf install -y "$MYSQL_REPO_RPM"
+  VALIDATE $? "install MySQL 8.4 repository"
+fi
+
+if ! rpm -q mysql-community-server >/dev/null 2>&1; then
+  dnf install -y \
+    --enablerepo=mysql-8.4-lts-community \
+    --disablerepo=mysql-9.7-lts-community \
+    --setopt=install_weak_deps=False \
+    mysql-community-server
+  VALIDATE $? "install MySQL 8.4 Community Server"
+else
+  MYSQL_SERVER_VERSION="$(rpm -q --qf '%{VERSION}' mysql-community-server)"
+  case "$MYSQL_SERVER_VERSION" in
+    8.4*) echo "MySQL 8.4 already installed ... SUCCESS" ;;
+    *) echo "Unexpected MySQL version: $MYSQL_SERVER_VERSION ... FAILURE"; exit 1 ;;
+  esac
+fi
+
+INSTALL_MISSING git
 
 # ---- listen on all interfaces (the security group restricts who connects) ------
 cat > /etc/my.cnf.d/zz-expense.cnf <<'CNF'
@@ -86,15 +106,29 @@ VALIDATE $? "start mysqld"
 # it in /root/.my.cnf so later mysql commands (and re-runs) can log in.
 # cloud-init runs this script without HOME=/root, so the mysql client would not
 # find /root/.my.cnf by itself: every root command passes it explicitly.
+# ---- root password ---------------------------------------------------------
 MYSQL_ROOT="mysql --defaults-extra-file=/root/.my.cnf"
+
 if [ ! -f /root/.my.cnf ]; then
-  mysql -u root -e "ALTER USER 'root'@'localhost' IDENTIFIED BY '$ROOT_PASSWORD';"
+  TEMP_ROOT_PASSWORD="$(awk '/temporary password/ {print $NF; exit}' /var/log/mysqld.log)"
+
+  if [ -z "$TEMP_ROOT_PASSWORD" ]; then
+    echo "MySQL temporary root password not found ... FAILURE"
+    exit 1
+  fi
+
+  mysql --connect-expired-password -u root \
+    --password="$TEMP_ROOT_PASSWORD" \
+    -e "ALTER USER 'root'@'localhost' IDENTIFIED BY '$ROOT_PASSWORD';"
+
   VALIDATE $? "set MySQL root password"
+
   cat > /root/.my.cnf <<EOF
 [client]
 user=root
 password=$ROOT_PASSWORD
 EOF
+
   chmod 600 /root/.my.cnf
   VALIDATE $? "write /root/.my.cnf"
 else

@@ -110,20 +110,32 @@ rm -rf "$WEB_ROOT"/*
 cp -r "$APP_DIR/dist/." "$WEB_ROOT/"
 VALIDATE $? "copy dist/ to $WEB_ROOT"
 
-# ---- SELinux and firewalld (RHEL) ---------------------------------------------------
+
+# ---- SELinux and firewalld (RHEL) -------------------------------------------
 if command -v selinuxenabled > /dev/null && selinuxenabled; then
-  # Let nginx open outbound connections (proxy to the backend).
+  # Install semanage, required to manage SELinux port types.
+  INSTALL_MISSING policycoreutils-python-utils
+
+  # Allow nginx to bind to its local exporter port 8081.
+  semanage port -a -t http_port_t -p tcp 8081 2>/dev/null ||
+    semanage port -m -t http_port_t -p tcp 8081
+  VALIDATE $? "SELinux: allow nginx to bind TCP 8081"
+
+  # Let nginx open outbound connections to the backend.
   setsebool -P httpd_can_network_connect 1
   VALIDATE $? "SELinux: allow nginx to proxy (httpd_can_network_connect)"
+
   restorecon -R "$WEB_ROOT"
   VALIDATE $? "SELinux: label $WEB_ROOT"
 else
   echo "SELinux disabled, skipping"
 fi
+
 if systemctl is-active --quiet firewalld; then
   firewall-cmd --permanent --add-service=http && firewall-cmd --reload
   VALIDATE $? "open 80 in firewalld"
 fi
+
 
 # ---- nginx -----------------------------------------------------------------------------
 # Main config = RHEL's default minus its built-in server block, so our site is
