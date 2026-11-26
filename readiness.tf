@@ -55,7 +55,7 @@ resource "terraform_data" "app_ready" {
 
   connection {
   type        = "ssh"
-  host        = each.value.public_ip
+  host        = aws_instance.frontend.public_ip
   user        = var.ssh_user
   private_key = file(var.private_key_path)
   timeout     = "5m"
