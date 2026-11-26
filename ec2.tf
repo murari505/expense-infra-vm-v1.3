@@ -55,6 +55,7 @@ resource "random_password" "mysql_exporter" {
 resource "aws_instance" "mysql" {
   ami                         = data.aws_ami.joindevops.id
   instance_type               = var.mysql_instance_type
+  key_name = "devops-april"
   subnet_id                   = aws_subnet.public["a"].id
   vpc_security_group_ids      = [aws_security_group.mysql.id]
   user_data_replace_on_change = true
@@ -85,6 +86,7 @@ resource "aws_instance" "mysql" {
 resource "aws_instance" "backend" {
   ami                         = data.aws_ami.joindevops.id
   instance_type               = var.backend_instance_type
+  key_name = "devops-april"
   subnet_id                   = aws_subnet.public["b"].id
   vpc_security_group_ids      = [aws_security_group.backend.id]
   user_data_replace_on_change = true
@@ -121,6 +123,7 @@ resource "aws_instance" "backend" {
 resource "aws_instance" "frontend" {
   ami                         = data.aws_ami.joindevops.id
   instance_type               = var.frontend_instance_type
+  key_name = "devops-april"
   subnet_id                   = aws_subnet.public["a"].id
   vpc_security_group_ids      = [aws_security_group.frontend.id]
   user_data_replace_on_change = true
@@ -158,6 +161,7 @@ resource "aws_instance" "frontend" {
 resource "aws_instance" "monitoring" {
   ami                         = data.aws_ami.joindevops.id
   instance_type               = var.monitoring_instance_type
+  key_name = "devops-april"
   subnet_id                   = aws_subnet.public["b"].id
   vpc_security_group_ids      = [aws_security_group.monitoring.id]
   iam_instance_profile        = aws_iam_instance_profile.prometheus.name
