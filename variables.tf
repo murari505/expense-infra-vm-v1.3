@@ -1,7 +1,7 @@
 variable "aws_region" {
   description = "AWS region for every resource."
   type        = string
-  default     = "us-east-1"
+  default     = "ap-southeast-2"
 }
 
 variable "project" {
@@ -55,12 +55,11 @@ variable "ssh_user" {
   type        = string
   default     = "ec2-user"
 }
-
-variable "ssh_password" {
-  description = "SSH password of the course AMI (practice only)."
+variable "private_key_path" {
+  description = "Path to EC2 private key"
   type        = string
-  default     = "DevOps321"
 }
+
 
 variable "frontend_instance_type" {
   type    = string
