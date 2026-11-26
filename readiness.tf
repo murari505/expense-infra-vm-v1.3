@@ -20,7 +20,7 @@ resource "terraform_data" "vm_ready" {
 
   connection {
   type        = "ssh"
-  host = each.key == "backend" ? aws_eip.backend.public_ip : each.key == "frontend" ? aws_eip.frontend.public_ip : each.value.public_ip
+  host = each.value.public_ip
   user        = var.ssh_user
   private_key = file(var.private_key_path)
   timeout     = "5m"
